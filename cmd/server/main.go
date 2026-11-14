@@ -1,20 +1,24 @@
 package main
 
 import (
-	"fmt"
-	"github.com/ujjwal/gopherq/internal/job"
+    "log"
+    "net/http"
+
+    "github.com/ujjwal/gopherq/internal/api"
 )
 
+func main() {
+    server := api.NewServer()
 
-func main(){
-	j:= job.Job{
-		ID: "job-101",
-		Type: "email",
-		Status: job.StatusPending,
-		MaxRetries: 3,
-	}
+    httpServer := &http.Server{
+        Addr:    ":8080",
+        Handler: server.Handler(),
+    }
 
-	fmt.Println(j)
-	fmt.Println("Job ID:", j.ID)
-    fmt.Println("Job Status:", j.Status)
+    log.Println("GopherQ listening on :8080")
+
+    if err := httpServer.ListenAndServe(); err != nil &&
+        err != http.ErrServerClosed {
+        log.Fatal(err)
+    }
 }
