@@ -5,10 +5,11 @@ import (
     "net/http"
 
     "github.com/ujjwal/gopherq/internal/api"
+    "github.com/ujjwal/gopherq/internal/store/memory"
 )
 
 func main() {
-    server := api.NewServer()
+    server := api.NewServer(memory.New())
 
     httpServer := &http.Server{
         Addr:    ":8080",
