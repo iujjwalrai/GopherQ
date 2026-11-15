@@ -1,20 +1,34 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"github.com/ujjwal/gopherq/internal/job"
+	"log"
+	"net/http"
+
+	"github.com/ujjwal/gopherq/internal/api"
+	"github.com/ujjwal/gopherq/internal/config"
+	"github.com/ujjwal/gopherq/internal/store/memory"
 )
 
-
-func main(){
-	j:= job.Job{
-		ID: "job-101",
-		Type: "email",
-		Status: job.StatusPending,
-		MaxRetries: 3,
+func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
 	}
 
-	fmt.Println(j)
-	fmt.Println("Job ID:", j.ID)
-    fmt.Println("Job Status:", j.Status)
+	server := api.NewServer(memory.New())
+
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: server.Handler(),
+	}
+
+	log.Printf("GopherQ listening on %s", addr)
+
+	if err := httpServer.ListenAndServe(); err != nil &&
+		!errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
 }
