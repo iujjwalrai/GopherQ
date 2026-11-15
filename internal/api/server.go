@@ -71,12 +71,14 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now().UTC()
 	j := job.Job{
 		Type:       req.Type,
 		Payload:    req.Payload,
 		Status:     job.StatusPending,
 		MaxRetries: 3,
-		CreatedAt:  time.Now().UTC(),
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	if err := s.createWithUniqueID(r.Context(), &j); err != nil {

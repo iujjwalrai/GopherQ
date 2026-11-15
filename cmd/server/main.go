@@ -1,25 +1,34 @@
 package main
 
 import (
-    "log"
-    "net/http"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
 
-    "github.com/ujjwal/gopherq/internal/api"
-    "github.com/ujjwal/gopherq/internal/store/memory"
+	"github.com/ujjwal/gopherq/internal/api"
+	"github.com/ujjwal/gopherq/internal/config"
+	"github.com/ujjwal/gopherq/internal/store/memory"
 )
 
 func main() {
-    server := api.NewServer(memory.New())
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
 
-    httpServer := &http.Server{
-        Addr:    ":8080",
-        Handler: server.Handler(),
-    }
+	server := api.NewServer(memory.New())
 
-    log.Println("GopherQ listening on :8080")
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: server.Handler(),
+	}
 
-    if err := httpServer.ListenAndServe(); err != nil &&
-        err != http.ErrServerClosed {
-        log.Fatal(err)
-    }
+	log.Printf("GopherQ listening on %s", addr)
+
+	if err := httpServer.ListenAndServe(); err != nil &&
+		!errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
 }
