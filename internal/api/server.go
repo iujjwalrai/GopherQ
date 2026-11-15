@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ujjwal/gopherq/internal/handler"
 	"github.com/ujjwal/gopherq/internal/job"
 	"github.com/ujjwal/gopherq/internal/store"
 )
@@ -19,12 +20,14 @@ import (
 const maxIDAttempts = 3
 
 type Server struct {
-	store store.Store
+	store    store.Store
+	registry *handler.Registry
 }
 
-// NewServer returns a Server that keeps jobs in s.
-func NewServer(s store.Store) *Server {
-	return &Server{store: s}
+// NewServer returns a Server that keeps jobs in s and only accepts job
+// types registered in reg.
+func NewServer(s store.Store, reg *handler.Registry) *Server {
+	return &Server{store: s, registry: reg}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -71,6 +74,20 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.registry.Has(req.Type) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("unknown job type %q", req.Type),
+		})
+		return
+	}
+
+	if err := s.registry.Validate(req.Type, req.Payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid payload: " + err.Error(),
+		})
+		return
+	}
+
 	now := time.Now().UTC()
 	j := job.Job{
 		Type:       req.Type,
@@ -79,6 +96,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		MaxRetries: 3,
 		CreatedAt:  now,
 		UpdatedAt:  now,
+		RunAt:      now,
 	}
 
 	if err := s.createWithUniqueID(r.Context(), &j); err != nil {

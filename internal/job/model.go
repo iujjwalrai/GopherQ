@@ -47,7 +47,17 @@ type Job struct {
 	MaxRetries int             `json:"max_retries"`
 	CreatedAt  time.Time       `json:"created_at"`
 	UpdatedAt  time.Time       `json:"updated_at"`
+	RunAt      time.Time       `json:"run_at"` // not run before this time
 	Error      string          `json:"error"`
+}
+
+// IsReady reports whether a worker may claim the job at time now: it is
+// pending, or failed with retries left, and its RunAt has arrived.
+func (j *Job) IsReady(now time.Time) bool {
+	waiting := j.Status == StatusPending ||
+		(j.Status == StatusFailed && j.CanRetry())
+
+	return waiting && !j.RunAt.After(now)
 }
 
 // MarkRunning moves a pending job, or a failed job being retried, to running.

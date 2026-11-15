@@ -157,6 +157,37 @@ func TestCanRetry(t *testing.T) {
 	}
 }
 
+func TestIsReady(t *testing.T) {
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	past := now.Add(-time.Minute)
+	future := now.Add(time.Minute)
+
+	tests := []struct {
+		name string
+		job  Job
+		want bool
+	}{
+		{"pending, time passed", Job{Status: StatusPending, RunAt: past}, true},
+		{"pending, exactly now", Job{Status: StatusPending, RunAt: now}, true},
+		{"pending, no RunAt", Job{Status: StatusPending}, true},
+		{"pending, in the future", Job{Status: StatusPending, RunAt: future}, false},
+		{"failed, retries left", Job{Status: StatusFailed, MaxRetries: 3, RunAt: past}, true},
+		{"failed, retries left, waiting", Job{Status: StatusFailed, MaxRetries: 3, RunAt: future}, false},
+		{"failed, no retries left", Job{Status: StatusFailed, Retries: 3, MaxRetries: 3, RunAt: past}, false},
+		{"running", Job{Status: StatusRunning, RunAt: past}, false},
+		{"completed", Job{Status: StatusCompleted, RunAt: past}, false},
+		{"dead", Job{Status: StatusDead, RunAt: past}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.job.IsReady(now); got != tc.want {
+				t.Fatalf("IsReady = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // mustSucceed stops the test if err is not nil.
 func mustSucceed(t *testing.T, err error) {
 	t.Helper()

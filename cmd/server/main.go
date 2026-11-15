@@ -8,6 +8,8 @@ import (
 
 	"github.com/ujjwal/gopherq/internal/api"
 	"github.com/ujjwal/gopherq/internal/config"
+	"github.com/ujjwal/gopherq/internal/handler"
+	"github.com/ujjwal/gopherq/internal/handler/demo"
 	"github.com/ujjwal/gopherq/internal/store/memory"
 )
 
@@ -17,7 +19,12 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	server := api.NewServer(memory.New())
+	reg := handler.NewRegistry()
+	reg.Register("email", demo.Email, demo.ValidateEmail)
+	reg.Register("flaky", demo.Flaky, demo.ValidateFlaky)
+	reg.Register("webhook", demo.NewWebhook(), demo.ValidateWebhook)
+
+	server := api.NewServer(memory.New(), reg)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	httpServer := &http.Server{
