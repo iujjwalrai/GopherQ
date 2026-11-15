@@ -96,6 +96,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		MaxRetries: 3,
 		CreatedAt:  now,
 		UpdatedAt:  now,
+		RunAt:      now,
 	}
 
 	if err := s.createWithUniqueID(r.Context(), &j); err != nil {

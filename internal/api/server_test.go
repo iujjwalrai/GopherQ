@@ -85,6 +85,10 @@ func TestCreateJob(t *testing.T) {
 		t.Fatalf("updated_at = %v, want it equal to created_at %v",
 			created.UpdatedAt, created.CreatedAt)
 	}
+	if !created.RunAt.Equal(created.CreatedAt) {
+		t.Fatalf("run_at = %v, want it equal to created_at %v",
+			created.RunAt, created.CreatedAt)
+	}
 
 	// The job must really be in the store, not just in the response.
 	if _, err := st.Get(context.Background(), created.ID); err != nil {

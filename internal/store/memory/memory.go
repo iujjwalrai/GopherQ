@@ -5,9 +5,11 @@ package memory
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ujjwal/gopherq/internal/job"
 	"github.com/ujjwal/gopherq/internal/store"
@@ -84,6 +86,71 @@ func (m *Store) List(ctx context.Context) ([]job.Job, error) {
 	})
 
 	return jobs, nil
+}
+
+// ClaimNext picks the ready job with the earliest RunAt, marks it running
+// and returns it, or returns store.ErrNoJobs. The whole check-and-change
+// happens under one lock, so two callers can never claim the same job.
+func (m *Store) ClaimNext(ctx context.Context) (job.Job, error) {
+	if err := ctx.Err(); err != nil {
+		return job.Job{}, err
+	}
+
+	now := time.Now().UTC()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var next job.Job
+	found := false
+	for _, j := range m.jobs {
+		if !j.IsReady(now) {
+			continue
+		}
+		if !found || claimOrder(j, next) < 0 {
+			next = j
+			found = true
+		}
+	}
+	if !found {
+		return job.Job{}, store.ErrNoJobs
+	}
+
+	if err := next.MarkRunning(); err != nil {
+		return job.Job{}, fmt.Errorf("claim job %s: %w", next.ID, err)
+	}
+	m.jobs[next.ID] = next
+
+	return clone(next), nil
+}
+
+// claimOrder is negative when a should be claimed before b: earliest
+// RunAt first, then earliest CreatedAt, then smallest ID.
+func claimOrder(a, b job.Job) int {
+	if c := a.RunAt.Compare(b.RunAt); c != 0 {
+		return c
+	}
+	if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+		return c
+	}
+	return strings.Compare(a.ID, b.ID)
+}
+
+// Update replaces the stored job with j, or returns store.ErrNotFound.
+func (m *Store) Update(ctx context.Context, j job.Job) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.jobs[j.ID]; !exists {
+		return store.ErrNotFound
+	}
+
+	m.jobs[j.ID] = clone(j)
+	return nil
 }
 
 // clone returns a copy of j that shares no memory with the original.
