@@ -10,10 +10,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ujjwal/gopherq/internal/handler"
 	"github.com/ujjwal/gopherq/internal/job"
 	"github.com/ujjwal/gopherq/internal/store"
 	"github.com/ujjwal/gopherq/internal/store/memory"
 )
+
+// testRegistry knows two job types: "test" accepts any payload, and
+// "strict" rejects every payload.
+func testRegistry() *handler.Registry {
+	noop := func(context.Context, json.RawMessage) error { return nil }
+
+	reg := handler.NewRegistry()
+	reg.Register("test", noop, nil)
+	reg.Register("strict", noop, func(json.RawMessage) error {
+		return errors.New(`needs "to"`)
+	})
+	return reg
+}
 
 // do sends one request to a server backed by st and returns the response.
 func do(t *testing.T, st store.Store, method, path, body string) *httptest.ResponseRecorder {
@@ -22,8 +36,21 @@ func do(t *testing.T, st store.Store, method, path, body string) *httptest.Respo
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	rec := httptest.NewRecorder()
 
-	NewServer(st).Handler().ServeHTTP(rec, req)
+	NewServer(st, testRegistry()).Handler().ServeHTTP(rec, req)
 	return rec
+}
+
+// errorMessage decodes {"error": "..."} from a response.
+func errorMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	return body.Error
 }
 
 func TestHealth(t *testing.T) {
@@ -38,7 +65,7 @@ func TestCreateJob(t *testing.T) {
 	st := memory.New()
 
 	rec := do(t, st, http.MethodPost, "/jobs",
-		`{"type": "email", "payload": {"to": "user@example.com"}}`)
+		`{"type": "test", "payload": {"to": "user@example.com"}}`)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", rec.Code)
@@ -67,20 +94,37 @@ func TestCreateJob(t *testing.T) {
 
 func TestCreateJobRejectsBadInput(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
+		name    string
+		body    string
+		wantMsg string
 	}{
-		{name: "not JSON", body: `{oops`},
-		{name: "missing type", body: `{"payload": {"a": 1}}`},
-		{name: "missing payload", body: `{"type": "email"}`},
+		{name: "not JSON", body: `{oops`,
+			wantMsg: "invalid JSON body"},
+		{name: "missing type", body: `{"payload": {"a": 1}}`,
+			wantMsg: "type and valid payload are required"},
+		{name: "missing payload", body: `{"type": "test"}`,
+			wantMsg: "type and valid payload are required"},
+		{name: "unknown type", body: `{"type": "emial", "payload": {}}`,
+			wantMsg: `unknown job type "emial"`},
+		{name: "invalid payload", body: `{"type": "strict", "payload": {}}`,
+			wantMsg: `invalid payload: needs "to"`},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := do(t, memory.New(), http.MethodPost, "/jobs", tc.body)
+			st := memory.New()
+			rec := do(t, st, http.MethodPost, "/jobs", tc.body)
 
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400", rec.Code)
+			}
+			if got := errorMessage(t, rec); got != tc.wantMsg {
+				t.Fatalf("error = %q, want %q", got, tc.wantMsg)
+			}
+
+			// Nothing may be saved for a rejected request.
+			if jobs, _ := st.List(context.Background()); len(jobs) != 0 {
+				t.Fatalf("store has %d jobs, want 0", len(jobs))
 			}
 		})
 	}
@@ -88,7 +132,7 @@ func TestCreateJobRejectsBadInput(t *testing.T) {
 
 func TestGetJob(t *testing.T) {
 	st := memory.New()
-	if err := st.Create(context.Background(), job.Job{ID: "job-1", Type: "email"}); err != nil {
+	if err := st.Create(context.Background(), job.Job{ID: "job-1", Type: "test"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,7 +219,7 @@ func TestCreateJobRetriesOnIDCollision(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := &collidingStore{Store: memory.New(), collisions: tc.collisions}
 
-			rec := do(t, st, http.MethodPost, "/jobs", `{"type": "email", "payload": {}}`)
+			rec := do(t, st, http.MethodPost, "/jobs", `{"type": "test", "payload": {}}`)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
